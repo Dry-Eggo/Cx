@@ -69,6 +69,8 @@ impl Lexer {
                     self.eat();
                 }
                 let token_type = match ident.as_str() {
+                    "fn" => TokenType::Fn,
+                    "var" => TokenType::Var,
                     "int" => TokenType::Int,
                     "char" => TokenType::Char,
                     "struct" => TokenType::Struct,
@@ -92,18 +94,19 @@ impl Lexer {
                     "do" => TokenType::Do,
                     "goto" => TokenType::Goto,
                     "union" => TokenType::Union,
-                    "signed" => TokenType::Signed,
-                    "unsigned" => TokenType::Unsigned,
-                    "long" => TokenType::Long,
-                    "short" => TokenType::Short,
-                    "float" => TokenType::Float,
-                    "double" => TokenType::Double,
                     _ => TokenType::Identifier(ident),
                 };
                 self.make_token(token_type)
             },
             '+' => { self.eat(); self.make_token(TokenType::Add) },
-            '-' => { self.eat(); self.make_token(TokenType::Sub) },
+            '-' => { self.eat(); 
+                if let Some('>') = self.peek() {
+                    self.eat();
+                    self.make_token(TokenType::RArrow)
+                } else { 
+                    self.make_token(TokenType::Sub) 
+                } 
+            },
             '*' => { self.eat(); self.make_token(TokenType::Mul) },
             '/' => { self.eat(); self.make_token(TokenType::Div) },
             '(' => { self.eat(); self.make_token(TokenType::LParen) },
@@ -113,6 +116,7 @@ impl Lexer {
             ';' => { self.eat(); self.make_token(TokenType::SemiColon) },
             ':' => { self.eat(); self.make_token(TokenType::Colon) },
             ',' => { self.eat(); self.make_token(TokenType::Comma) },
+            '=' => { self.eat(); self.make_token(TokenType::Eq) },
             c if c.is_whitespace() => {
                 self.eat();
                 self.next_token()

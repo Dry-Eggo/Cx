@@ -1,15 +1,14 @@
 
 
 // Define the TokenType enum to represent different types of tokens
-// including many keywords from the C programming language
 #[derive(Debug, PartialEq, Clone)]
 pub enum TokenType {
     // Keywords
+    Fn, Var,
     Int, Char, Struct, Enum,
     Return, If, Else, While, For, Break,
     Continue, Void, Const, Static, Extern, Typedef, Sizeof,
-    Switch, Case, Default, Do, Goto, Union, Signed, Unsigned, Long,
-    Short, Float, Double, Auto, Register, Volatile, Inline,
+    Switch, Case, Default, Do, Goto, Union, 
 
     // values
     Identifier(String),
@@ -34,6 +33,7 @@ pub enum TokenType {
     LBrace, RBrace,
     SemiColon, Colon, 
     Comma, 
+    LArrow, RArrow,
 
     Eof,
 }
@@ -73,6 +73,9 @@ impl Token {
 
     pub fn display(&self) -> String {
         match &self.token_type {
+            TokenType::Fn  => "fn".to_string(),
+            TokenType::Var => "var".to_string(),
+            TokenType::Const => "const".to_string(),
             TokenType::Int => "int".to_string(),
             TokenType::Char => "char".to_string(),
             TokenType::Struct => "struct".to_string(),
@@ -90,12 +93,15 @@ impl Token {
             TokenType::SemiColon => ";".to_string(),
             TokenType::Colon => ":".to_string(),
             TokenType::Comma => ",".to_string(),
+            TokenType::Eq => "=".to_string(),
             TokenType::Return => "return".to_string(),
             TokenType::If => "if".to_string(),
             TokenType::Else => "else".to_string(),
             TokenType::While => "while".to_string(),
             TokenType::For => "for".to_string(),
             TokenType::Break => "break".to_string(),
+            TokenType::LArrow => "->".to_string(),
+            TokenType::RArrow => "<-".to_string(),
             TokenType::Eof => "EOF".to_string(),
             _ => todo!(),
         }

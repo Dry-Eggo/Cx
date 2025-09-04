@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::{diag::diag::Diag, parser};
+use crate::{diag::diag::Diag, parser::{self, token::TokenType}};
 
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub enum ParseContext {
@@ -104,7 +104,7 @@ impl Parser {
         false
     }
 
-    pub fn parse_program(&mut self) -> Result<&Vec<parser::ast::DeclType>, Vec<Diag>> {
+    pub fn parse_program(&mut self) -> Result<Vec<parser::ast::DeclType>, Vec<Diag>> {
         let mut errors = Vec::new();
         while let Some(token) = self.peek() {
             if token.matches(&parser::token::TokenType::Eof) {
@@ -123,82 +123,99 @@ impl Parser {
             return Err(errors);
         }
         
-        Ok(&self.program)
+        Ok(std::mem::take(&mut self.program))
     }
 
     fn parse_declaration(&mut self) -> Result<parser::ast::DeclType, Diag> {
-        let tok = self.peek().unwrap();
         // tokens that can start a declaration:
         // * 'struct': struct definitions
         // * 'enum'  : enumerations
-        // * any id  : marco or type name { function | variable_decl }
+        // * 'fn'    : function definitions
         // * '#'     : directives
         
-        // covering only 'any id' case for now
-        if tok.is_a_name() {
-            return self.parse_function_or_variable_decl();
-        }
-        todo!();
-    }
-
-    fn parse_function_or_variable_decl(&mut self) -> Result<parser::ast::DeclType, Diag> {
-        let type_name = self.parse_type()?;
-        let decl_name = match self.peek() {
-            Some(t) if t.is_an_identifier() => {
-                if let parser::token::TokenType::Identifier(n) = t.get_type() {
-                    n.clone()
-                } else {
-                    unreachable!();
-                }
-            },
-            _ => {
-                return Err(Diag::DeclarationMissingAName(self.current_span().clone()));
-            }
+        let Some(tok) = self.peek() else {
+            return Err(Diag::EarlyEOF(self.current_span().clone()))
         };
-        self.eat(); // consume the identifier
-        // this could be a '(' then we attempt to parse a function
-        // or a ';' then we parse a variable forward decl or '=' then we parse
-        // a full variable decl
-
-        if self.match_and(parser::token::TokenType::LParen, |_| true) {
-            return self.parse_function_decl(type_name, decl_name);
+        
+        match tok.get_type() {
+            parser::token::TokenType::Fn => {
+                return self.parse_function_decl();
+            }
+            parser::token::TokenType::Var => {
+                return self.parse_variable_decl();
+            }
+            _ => {
+                let expr = self.parse_expression()?;
+                return Ok(parser::ast::DeclType::SideEffect(*expr));
+            } 
         }
-
-        todo!();
     }
 
-    fn parse_function_decl(&mut self, return_type: Box<parser::ast::Type>, name: String) -> Result<parser::ast::DeclType, Diag> {
-        let old_ctx = self.set_context(ParseContext::FunctionParams);
-        let mut params = Vec::new();
-        self.eat(); // consume '(' 
+    fn parse_function_decl(&mut self) -> Result<parser::ast::DeclType, Diag> {
+        self.eat();  // eat 'fn'
+        let function_name = self.expect_identifier()?;
+
+        self.expect(parser::token::TokenType::LParen);
+
+        let mut params = vec![];
         while !self.match_and(parser::token::TokenType::RParen, |_| true) {
-            // only support named parameters passed by value for now
-            let param_type = self.parse_type()?;
             let param_name = self.expect_identifier()?;
+            self.expect(parser::token::TokenType::Colon); 
+            let param_type = self.parse_type()?;
             params.push(parser::ast::Parameter::new_named(param_name, param_type, parser::ast::TakeType::ByValue));
+            if self.match_and(parser::token::TokenType::Comma, |_| true) {
+                self.eat();
+            }
         }
-        self.set_context(old_ctx);
-        // now expect either a ';' for forward declaration or a '{' for function body
+
+        self.expect(parser::token::TokenType::RParen);
+        let mut function_type = parser::ast::Type::new_void();
+        if self.match_and(parser::token::TokenType::RArrow, |_| true) {
+            self.eat();
+            function_type = self.parse_type()?;
+        }
+
         if self.match_and(parser::token::TokenType::SemiColon, |_| true) {
-            return Ok(parser::ast::DeclType::FunctionDecl {
-                name,
-                func_type: return_type, // this we will need to construct a full function type
-                                        // later
-                params,
-                body: None,
-            });
-        } else if self.match_and(parser::token::TokenType::LBrace, |_| true) {
-            // parse function body
-            let body = self.parse_expression()?;
-            return Ok(parser::ast::DeclType::FunctionDecl {
-                name,
-                func_type: return_type, // this we will need to construct a full function type
-                                        // later
-                params,
-                body: Some(body),
-            });
+            self.eat();
+            return Ok(parser::ast::DeclType::FunctionDecl { 
+                name: function_name,
+                func_type: function_type,
+                params, body: None 
+            })
         }
-        todo!();
+        
+        // must be a CompoundExpr
+        let function_body = self.parse_expression()?;
+        Ok(parser::ast::DeclType::FunctionDecl { name: function_name, func_type:
+            function_type, params, body: Some(function_body) })
+    }
+
+    fn parse_variable_decl(&mut self) -> Result<parser::ast::DeclType, Diag> {
+        let is_const = if let Some(tok) = self.peek() {
+            if *tok.get_type() == TokenType::Const {
+                true
+            } else {
+                false
+            }
+        } else {
+            return Err(Diag::EarlyEOF(self.current_span().clone()))
+        };
+        self.eat();
+
+        let variable_name = self.expect_identifier()?;
+        // types are a must for now 
+        self.expect(TokenType::Colon);
+        let variable_type = self.parse_type()?;
+        self.expect(TokenType::Eq);
+        let initializer = self.parse_expression()?;
+
+        self.expect(TokenType::SemiColon);
+        Ok(parser::ast::DeclType::VariableDecl {
+            name: variable_name,
+            var_type: variable_type,
+            init: Some(initializer),
+            mutability: if is_const { parser::ast::Mutability::Immutable } else { parser::ast::Mutability::Mutable },
+        })
     }
 
     // the classic RD expression chain
@@ -380,7 +397,22 @@ impl Parser {
                 }
             }
 
-            todo!();
+            if tok.matches(&parser::token::TokenType::LBrace) {
+                self.eat();
+                let mut exprs = vec![];
+                while !self.match_and(parser::token::TokenType::RBrace, |_| true) {
+                    exprs.push(Box::new(self.parse_declaration()?));
+                    if self.peek().is_none() {
+                       return Err(Diag::EarlyEOF(self.current_span().clone()));
+                    }
+                }
+                self.expect(parser::token::TokenType::RBrace);
+                return Ok(Box::new(parser::ast::Expr::CompoundExpr { expressions: exprs }));
+            }
+
+
+
+            todo!("{:?}", tok.display());
         } else {
             return Err(Diag::EarlyEOF(self.current_span().clone())); 
         }
@@ -393,13 +425,13 @@ impl Parser {
 
         if tok.matches(&parser::token::TokenType::Int) {
             self.eat();
-            return Ok(parser::ast::Type::new_cint());
+            return Ok(parser::ast::Type::new_int());
         } else if tok.matches(&parser::token::TokenType::Char) {
             self.eat();
-            return Ok(parser::ast::Type::new_cchar());
+            return Ok(parser::ast::Type::new_char());
         } else if tok.matches(&parser::token::TokenType::Void) {
             self.eat();
-            return Ok(parser::ast::Type::new_cvoid());
+            return Ok(parser::ast::Type::new_void());
         } else if tok.is_an_identifier() {
             let name = if let parser::token::TokenType::Identifier(n) = tok.get_type() {
                 n

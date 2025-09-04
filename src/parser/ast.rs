@@ -3,36 +3,31 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
     TypeName(String), // for typedefs or named types
-    // standard Cx integer type
     CxInteger {
         bits: u8,
         signed: bool,
     },
     // 'int', 'char', 'void' from c
-    CInt,
-    CVoid,
-    CChar,
+    Int,
+    Void,
+    Char,
     // struct type
     CompoundType {
         name: String,
         fields: Vec<(String, FieldMeta)>,
     },
     // regular pointer type
-    // e.g., int*, char**, struct A* for c-style or
     // *int, **char, *struct A for standard Cx
     PointerType {
         to: Box<Type>,
     },
     // Reference type
-    // standard Cx only
     RefType {
         to: Box<Type>,
         // could be &T or &mut T,
         mutable: bool,
     },
     // Array type
-    // length tracking included for standard Cx
-    // e.g., int[10], char[], struct A[5] for c-style or
     // [int; 10], [char], [struct A; 5] for standard Cx (also dynamic)
     ArrayType {
         of: Box<Type>,
@@ -64,7 +59,14 @@ pub enum DeclType {
         func_type: Box<Type>,
         params: Vec<Parameter>,
         body: Option<Box<Expr>>, // None for forward declaration
-    }
+    },
+    VariableDecl {
+        name: String,
+        var_type: Box<Type>,
+        init: Option<Box<Expr>>, // None for uninitialized
+        mutability: Mutability,
+    },
+    SideEffect(Expr),
 }
 
 pub enum BinaryOperator {
@@ -119,7 +121,7 @@ pub enum Expr {
     },
     // Function Bodies, Temporay Scope, etc.
     CompoundExpr {
-        expressions: Vec<Expr>,
+        expressions: Vec<Box<DeclType>>,
     }
     // TODO: more expression types
 }
@@ -145,16 +147,16 @@ impl Type {
         Box::new(Type::CxInteger { bits, signed })
     }
 
-    pub fn new_cint() -> Box<Self> {
-        Box::new(Type::CInt)
+    pub fn new_int() -> Box<Self> {
+        Box::new(Type::Int)
     }
 
-    pub fn new_cchar() -> Box<Self> {
-        Box::new(Type::CChar)
+    pub fn new_char() -> Box<Self> {
+        Box::new(Type::Char)
     }
 
-    pub fn new_cvoid() -> Box<Self> {
-        Box::new(Type::CVoid)
+    pub fn new_void() -> Box<Self> {
+        Box::new(Type::Void)
     }
 
     pub fn new_pointer(to: Box<Type>) -> Box<Self> {
@@ -162,6 +164,6 @@ impl Type {
     }
 
     pub fn is_integer(&self) -> bool {
-        matches!(self, Type::CxInteger { .. } | Type::CInt | Type::CChar)
+        matches!(self, Type::CxInteger { .. } | Type::Int | Type::Char)
     }
 }
